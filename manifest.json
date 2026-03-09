@@ -1,0 +1,17 @@
+{
+  "name": "Blackbird",
+  "short_name": "Blackbird",
+  "description": "Tell the bird. Let it go.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a0a30",
+  "theme_color": "#1a0a30",
+  "icons": [
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

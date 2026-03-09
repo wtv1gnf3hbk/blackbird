@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Blackbird">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a0a30">
+<title>Blackbird</title>
+<style>
+  /* ─── Reset ─── */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #1a0a30;
+    color: rgba(255, 245, 230, 0.9);
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent overscroll bounce on iOS */
+    overscroll-behavior: none;
+  }
+
+  /* ─── Full-screen stage ─── */
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1a0a30;
+  }
+
+  /* ─── Scene container — aspect ratio locked to source art ─── */
+  #scene {
+    position: relative;
+    width: 100vw;
+    max-width: 428px;
+    aspect-ratio: 428 / 640;
+    max-height: 100vh;
+    overflow: hidden;
+    background: #1a0a30;
+  }
+
+  /* When aspect-ratio makes it taller than viewport, shrink by height instead */
+  @media (max-aspect-ratio: 428/640) {
+    #scene {
+      height: 100vh;
+      width: auto;
+      aspect-ratio: 428 / 640;
+    }
+  }
+
+  /* ─── Layers (stacked absolutely inside #scene) ─── */
+  .layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .layer img, .layer video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .hidden { display: none !important; }
+  .fade-in { animation: fadeIn 0.8s ease-out forwards; }
+  .fade-out { animation: fadeOut 0.8s ease-out forwards; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+  /* ─── Background layer (always visible) ─── */
+  #bg-layer img {
+    opacity: 1;
+  }
+
+  /* ─── Arrival video layer ─── */
+  #arrive-layer video {
+    opacity: 1;
+  }
+
+  /* ─── Idle layer — bird static + breathing ─── */
+  #idle-layer {
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  }
+
+  #idle-bird {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Subtle breathing animation */
+    animation: breathe 4s ease-in-out infinite;
+    transform-origin: center 65%; /* Anchor at bird's feet area */
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.008); }
+  }
+
+  /* ─── Thought bubble ─── */
+  #thought-bubble {
+    position: absolute;
+    top: 8%;
+    left: 50%;
+    transform: translateX(-50%) scale(0.8);
+    opacity: 0;
+    transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 10;
+    /* Organic bubble shape */
+    background: rgba(255, 255, 240, 0.92);
+    border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+    padding: 24px 32px 28px;
+    text-align: center;
+    max-width: 80%;
+    box-shadow: 0 4px 30px rgba(255, 220, 150, 0.3);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #thought-bubble.visible {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  /* Bubble tail dots */
+  #thought-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -16px;
+    right: 30%;
+    width: 16px;
+    height: 16px;
+    background: rgba(255, 255, 240, 0.85);
+    border-radius: 50%;
+  }
+  #thought-bubble::before {
+    content: '';
+    position: absolute;
+    bottom: -28px;
+    right: 25%;
+    width: 10px;
+    height: 10px;
+    background: rgba(255, 255, 240, 0.7);
+    border-radius: 50%;
+  }
+
+  .bubble-prompt {
+    font-size: clamp(18px, 5vw, 24px);
+    font-weight: 500;
+    color: #2a1a3a;
+    line-height: 1.3;
+  }
+
+  /* ─── Recording dot ─── */
+  #record-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin: 14px auto 6px;
+    background: #e33;
+    transition: background 0.4s ease, box-shadow 0.4s ease, border-radius 0.4s ease;
+  }
+  #record-dot.pulsing {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  #record-dot.recording {
+    background: #e33;
+    /* Scale driven by JS based on audio amplitude */
+  }
+  #record-dot.captured {
+    background: #4488dd;
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(68, 136, 221, 0.6);
+    animation: none;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.25); opacity: 1; }
+  }
+
+  .bubble-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #5a4a6a;
+    margin-top: 6px;
+    transition: opacity 0.3s ease;
+  }
+
+  /* Recording elapsed time — subtle, below the label */
+  #record-timer {
+    font-size: 20px;
+    font-weight: 200;
+    color: rgba(180, 60, 60, 0.7);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  #record-timer.visible { opacity: 1; }
+
+  /* ─── Flyaway layer ─── */
+  #flyaway-layer {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  /* Gradient overlay to hide baked-in "Sweet dreams!" text on the flyaway video */
+  .flyaway-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40%;
+    background: linear-gradient(
+      to bottom,
+      rgb(42, 14, 65) 0%,
+      rgb(48, 18, 72) 30%,
+      rgb(55, 20, 82) 55%,
+      rgba(65, 26, 95, 0.97) 70%,
+      rgba(80, 35, 115, 0.7) 85%,
+      rgba(100, 45, 140, 0) 100%
+    );
+    z-index: 2;
+  }
+
+  /* ─── Release screen ─── */
+  #release-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    z-index: 20;
+    /* Over the faded-out flyaway — needs to be opaque enough to hide the bird
+       in case the flyaway video doesn't play (autoplay blocked, etc.) */
+    background: radial-gradient(ellipse at center, rgba(35, 14, 60, 0.97) 0%, rgba(15, 5, 30, 0.99) 60%);
+    pointer-events: none;
+  }
+  #release-screen.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .release-text {
+    font-size: clamp(24px, 7vw, 36px);
+    font-weight: 300;
+    letter-spacing: 1px;
+    color: rgba(255, 245, 230, 0.9);
+    text-align: center;
+    margin-bottom: 48px;
+    line-height: 1.4;
+  }
+
+  .release-btn {
+    display: block;
+    padding: 16px 48px;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .release-btn:active { transform: scale(0.96); }
+
+  .btn-primary {
+    background: rgba(255, 245, 230, 0.15);
+    color: rgba(255, 245, 230, 0.9);
+    border: 1px solid rgba(255, 245, 230, 0.2);
+    margin-bottom: 16px;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: rgba(255, 245, 230, 0.4);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+    padding: 12px 32px;
+  }
+
+  .btn-more {
+    background: transparent;
+    color: rgba(255, 245, 230, 0.35);
+    font-size: 13px;
+    font-weight: 400;
+    padding: 10px 24px;
+    margin-top: 8px;
+  }
+
+  /* ─── Reminder picker ─── */
+  #reminder-picker {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+    margin-bottom: 12px;
+    animation: slideUp 0.4s ease-out;
+  }
+  #reminder-picker.visible { display: flex; }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .reminder-label {
+    font-size: 12px;
+    color: rgba(255, 245, 230, 0.4);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .reminder-options {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .reminder-opt {
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 400;
+    background: rgba(255, 245, 230, 0.08);
+    color: rgba(255, 245, 230, 0.7);
+    border: 1px solid rgba(255, 245, 230, 0.12);
+    border-radius: 20px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s ease, transform 0.15s ease;
+  }
+  .reminder-opt:active { transform: scale(0.95); }
+  .reminder-opt.selected {
+    background: rgba(255, 245, 230, 0.18);
+    border-color: rgba(255, 245, 230, 0.3);
+    color: rgba(255, 245, 230, 0.95);
+  }
+
+  .reminder-confirm {
+    font-size: 13px;
+    color: rgba(255, 245, 230, 0.5);
+    margin-top: 4px;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .reminder-confirm.visible { opacity: 1; }
+
+  /* ─── Goodnight (final black) ─── */
+  #goodnight-screen {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    opacity: 0;
+    transition: opacity 2s ease;
+    z-index: 30;
+    pointer-events: none;
+  }
+  #goodnight-screen.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  #session-count {
+    position: absolute;
+    bottom: 12%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 300;
+    color: rgba(255, 245, 230, 0.15);
+    letter-spacing: 1px;
+  }
+
+  /* ─── Onboarding ─── */
+  #onboarding {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    background: radial-gradient(ellipse at center, rgba(40, 16, 65, 0.98) 0%, rgba(15, 5, 30, 1) 80%);
+    padding: 40px 32px;
+    text-align: center;
+  }
+
+  .onboard-title {
+    font-size: clamp(28px, 8vw, 40px);
+    font-weight: 300;
+    margin-bottom: 20px;
+    color: rgba(255, 245, 230, 0.9);
+  }
+
+  .onboard-text {
+    font-size: 16px;
+    font-weight: 300;
+    line-height: 1.6;
+    color: rgba(255, 245, 230, 0.6);
+    max-width: 300px;
+    margin-bottom: 40px;
+  }
+
+  .onboard-btn {
+    padding: 16px 40px;
+    font-size: 16px;
+    font-weight: 500;
+    background: rgba(255, 245, 230, 0.12);
+    color: rgba(255, 245, 230, 0.85);
+    border: 1px solid rgba(255, 245, 230, 0.15);
+    border-radius: 30px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s ease;
+  }
+  .onboard-btn:active { transform: scale(0.96); }
+
+  .onboard-privacy {
+    font-size: 12px;
+    color: rgba(255, 245, 230, 0.3);
+    margin-top: 24px;
+    max-width: 260px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="scene">
+
+    <!-- Background — always visible -->
+    <div id="bg-layer" class="layer">
+      <img src="background.png" alt="">
+    </div>
+
+    <!-- Arrival video -->
+    <div id="arrive-layer" class="layer hidden">
+      <video id="arrive-video" src="bird-arrive.mp4" playsinline muted preload="auto"></video>
+    </div>
+
+    <!-- Idle: static bird + thought bubble -->
+    <div id="idle-layer" class="layer">
+      <img id="idle-bird" src="bird-idle.png" alt="">
+      <div id="thought-bubble">
+        <div class="bubble-prompt" id="bubble-prompt">What's keeping<br>you up?</div>
+        <div id="record-dot" class="pulsing"></div>
+        <div class="bubble-label" id="bubble-label">Tap to record</div>
+        <div id="record-timer">0:00</div>
+      </div>
+    </div>
+
+    <!-- Flyaway video -->
+    <div id="flyaway-layer" class="layer">
+      <video id="flyaway-video" src="bird-flyaway-full.mp4" playsinline muted preload="auto"></video>
+      <div class="flyaway-overlay"></div>
+    </div>
+
+    <!-- Release screen -->
+    <div id="release-screen">
+      <div class="release-text" id="release-text">The bird has it.</div>
+      <button class="release-btn btn-primary" id="btn-goodnight"></button>
+      <button class="release-btn btn-secondary" id="btn-remind">...remind me later</button>
+      <div id="reminder-picker">
+        <div class="reminder-label">When?</div>
+        <div class="reminder-options">
+          <button class="reminder-opt" data-when="morning">Morning</button>
+          <button class="reminder-opt" data-when="tomorrow">Tomorrow</button>
+          <button class="reminder-opt" data-when="weekend">This weekend</button>
+          <button class="reminder-opt" data-when="never">Let it go</button>
+        </div>
+        <div class="reminder-confirm" id="reminder-confirm"></div>
+      </div>
+      <button class="release-btn btn-more" id="btn-more">More cares?</button>
+    </div>
+
+    <!-- Goodnight — final black -->
+    <div id="goodnight-screen">
+      <div id="session-count"></div>
+    </div>
+
+    <!-- Onboarding overlay -->
+    <div id="onboarding" class="hidden">
+      <div class="onboard-title">Blackbird</div>
+      <div class="onboard-text">
+        When something's on your mind, tell the bird. It'll carry it away.
+      </div>
+      <button class="onboard-btn" id="btn-start">Let it listen</button>
+      <div class="onboard-privacy">
+        Blackbird needs your microphone to hear you.<br>
+        Your recordings never leave this phone.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ─── DOM refs ───
+  const $ = (id) => document.getElementById(id);
+  const arriveLayer   = $('arrive-layer');
+  const arriveVideo   = $('arrive-video');
+  const idleLayer     = $('idle-layer');
+  const thoughtBubble = $('thought-bubble');
+  const bubblePrompt  = $('bubble-prompt');
+  const recordDot     = $('record-dot');
+  const bubbleLabel   = $('bubble-label');
+  const flyawayLayer  = $('flyaway-layer');
+  const flyawayVideo  = $('flyaway-video');
+  const releaseScreen = $('release-screen');
+  const releaseText   = $('release-text');
+  const goodnightScreen = $('goodnight-screen');
+  const onboarding    = $('onboarding');
+  const btnStart      = $('btn-start');
+  const btnGoodnight  = $('btn-goodnight');
+  const btnRemind     = $('btn-remind');
+  const btnMore       = $('btn-more');
+
+  // ─── State ───
+  let state = 'init'; // init → arriving → idle → recording → captured → flyaway → release → goodnight
+  let mediaRecorder = null;
+  let audioStream = null;
+  let audioContext = null;
+  let analyser = null;
+  let animFrameId = null;
+  let recordingFallback = false; // True if MediaRecorder unavailable
+  let fallbackTimer = null;
+  let recordTimerInterval = null;
+  let recordStartTime = null;
+  let worryCount = parseInt(localStorage.getItem('blackbird-worries') || '0', 10);
+
+  // ─── Helpers ───
+  function setState(newState) {
+    state = newState;
+    console.log('[Blackbird] state →', newState);
+  }
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // ─── Time-aware copy ───
+  // Detects time of day and adjusts prompts accordingly.
+  // Night (9pm-5am): bedside mode — "What's keeping you up?" / "Goodnight"
+  // Morning (5am-12pm): "What's on your mind this morning?" / "Have a good day"
+  // Afternoon (12pm-5pm): "What's weighing on you?" / "Take care"
+  // Evening (5pm-9pm): "What's on your mind tonight?" / "Rest easy"
+  function getTimeContext() {
+    const hour = new Date().getHours();
+    if (hour >= 21 || hour < 5) {
+      return {
+        prompt: "What's keeping<br>you up?",
+        goodbye: "Goodnight",
+        period: 'night'
+      };
+    } else if (hour >= 5 && hour < 12) {
+      return {
+        prompt: "What's on your<br>mind this morning?",
+        goodbye: "Have a good day",
+        period: 'morning'
+      };
+    } else if (hour >= 12 && hour < 17) {
+      return {
+        prompt: "What's weighing<br>on you?",
+        goodbye: "Take care",
+        period: 'afternoon'
+      };
+    } else {
+      return {
+        prompt: "What's on your<br>mind tonight?",
+        goodbye: "Rest easy",
+        period: 'evening'
+      };
+    }
+  }
+
+  const timeCtx = getTimeContext();
+  console.log('[Blackbird] time context:', timeCtx.period);
+
+  // Apply time-aware text to static elements on load
+  // (Goodnight button text set after DOM refs are ready, see init)
+
+  // ─── Sound effects (synthesized via Web Audio — no external files) ───
+  // Soft, warm chirp when the bird lands. Very quiet — barely audible.
+  // Uses FM synthesis to create a brief, organic-sounding bird note.
+  function playChirp() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // Carrier oscillator (the main tone)
+      const carrier = ctx.createOscillator();
+      carrier.type = 'sine';
+      carrier.frequency.setValueAtTime(1800, ctx.currentTime);
+      // Quick pitch slide down — bird call shape
+      carrier.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08);
+      carrier.frequency.exponentialRampToValueAtTime(1600, ctx.currentTime + 0.12);
+      carrier.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.2);
+
+      // Modulator for FM synthesis (adds organic texture)
+      const mod = ctx.createOscillator();
+      mod.type = 'sine';
+      mod.frequency.setValueAtTime(400, ctx.currentTime);
+      const modGain = ctx.createGain();
+      modGain.gain.setValueAtTime(200, ctx.currentTime);
+      modGain.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 0.2);
+      mod.connect(modGain);
+      modGain.connect(carrier.frequency);
+
+      // Volume envelope — very soft
+      const vol = ctx.createGain();
+      vol.gain.setValueAtTime(0, ctx.currentTime);
+      vol.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.02); // Attack
+      vol.gain.linearRampToValueAtTime(0.04, ctx.currentTime + 0.08); // Sustain
+      vol.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25); // Decay
+
+      carrier.connect(vol);
+      vol.connect(ctx.destination);
+
+      carrier.start(ctx.currentTime);
+      mod.start(ctx.currentTime);
+      carrier.stop(ctx.currentTime + 0.3);
+      mod.stop(ctx.currentTime + 0.3);
+
+      // Clean up
+      setTimeout(() => ctx.close().catch(() => {}), 500);
+    } catch (e) {
+      // Sound is non-essential — fail silently
+    }
+  }
+
+  // Gentle confirmation tone when worry is captured (blue dot moment)
+  function playCapturedTone() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      // Two soft descending notes — "got it" feeling
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.18);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.35);
+
+      const vol = ctx.createGain();
+      vol.gain.setValueAtTime(0, ctx.currentTime);
+      vol.gain.linearRampToValueAtTime(0.04, ctx.currentTime + 0.02);
+      vol.gain.linearRampToValueAtTime(0.03, ctx.currentTime + 0.2);
+      vol.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+
+      osc.connect(vol);
+      vol.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+
+      setTimeout(() => ctx.close().catch(() => {}), 700);
+    } catch (e) {}
+  }
+
+  // ─── Onboarding / mic permission ───
+  async function checkMicPermission() {
+    // Check if we've been through onboarding before
+    const seen = localStorage.getItem('blackbird-onboarded');
+
+    if (seen === 'true') {
+      // Already onboarded — try to get mic access silently (with timeout)
+      try {
+        audioStream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ audio: true }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        return true;
+      } catch (e) {
+        // Permission revoked or timed out — use fallback
+        console.warn('[Blackbird] Mic check failed:', e.message);
+        recordingFallback = true;
+        return true; // Still skip onboarding — they've seen it
+      }
+    }
+    return false;
+  }
+
+  async function requestMic() {
+    try {
+      // Timeout: if permission dialog hangs for > 3s, proceed without mic
+      // (On real iOS Safari this resolves instantly if already granted)
+      audioStream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+      ]);
+      localStorage.setItem('blackbird-onboarded', 'true');
+      return true;
+    } catch (e) {
+      console.warn('[Blackbird] Mic denied or unavailable, using fallback mode:', e.message);
+      recordingFallback = true;
+      localStorage.setItem('blackbird-onboarded', 'true');
+      return true; // Still proceed — fallback mode
+    }
+  }
+
+  // ─── Audio amplitude monitoring (for recording dot animation) ───
+  function startAmplitudeMonitor() {
+    if (!audioStream || recordingFallback) return;
+
+    try {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(audioStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function animate() {
+        if (state !== 'recording') return;
+        analyser.getByteFrequencyData(dataArray);
+        // Average amplitude 0-255
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        const scale = 1 + (avg / 255) * 0.8; // 1.0 to 1.8
+        recordDot.style.transform = `scale(${scale})`;
+        animFrameId = requestAnimationFrame(animate);
+      }
+      animate();
+    } catch (e) {
+      console.warn('[Blackbird] Audio analysis failed:', e);
+    }
+  }
+
+  function stopAmplitudeMonitor() {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+    recordDot.style.transform = '';
+    if (audioContext) {
+      audioContext.close().catch(() => {});
+      audioContext = null;
+    }
+  }
+
+  // ─── Recording ───
+  function startRecording() {
+    recordDot.classList.remove('pulsing');
+    recordDot.classList.add('recording');
+    bubbleLabel.textContent = 'Tap to stop';
+    bubblePrompt.innerHTML = 'Listening...';
+
+    // Start elapsed timer
+    const timerEl = $('record-timer');
+    timerEl.textContent = '0:00';
+    timerEl.classList.add('visible');
+    recordStartTime = Date.now();
+    recordTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
+      timerEl.textContent = mins + ':' + String(secs).padStart(2, '0');
+    }, 1000);
+
+    if (recordingFallback || !audioStream) {
+      // Fallback: just track time, no actual recording
+      fallbackTimer = Date.now();
+      // Simulate gentle pulse
+      recordDot.classList.add('pulsing');
+      return;
+    }
+
+    try {
+      // Prefer mp4 on Safari, webm elsewhere
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : '';
+
+      mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : {});
+      mediaRecorder.start();
+      startAmplitudeMonitor();
+    } catch (e) {
+      console.warn('[Blackbird] MediaRecorder failed, using fallback:', e);
+      recordingFallback = true;
+      fallbackTimer = Date.now();
+      recordDot.classList.add('pulsing');
+    }
+  }
+
+  function stopRecording() {
+    stopAmplitudeMonitor();
+
+    // Stop elapsed timer
+    if (recordTimerInterval) {
+      clearInterval(recordTimerInterval);
+      recordTimerInterval = null;
+    }
+    $('record-timer').classList.remove('visible');
+
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      mediaRecorder = null;
+    }
+    fallbackTimer = null;
+  }
+
+  // ─── Flow functions ───
+
+  async function startFlow() {
+    setState('arriving');
+
+    // Show arrival video, reset idle/bubble state
+    arriveLayer.classList.remove('hidden');
+    idleLayer.style.opacity = '0';
+    thoughtBubble.style.opacity = '0';
+    thoughtBubble.style.transform = 'translateX(-50%) scale(0.8)';
+
+    // Play arrival
+    arriveVideo.currentTime = 0;
+    try {
+      await arriveVideo.play();
+    } catch (e) {
+      // Autoplay blocked — skip to idle
+      console.warn('[Blackbird] Autoplay blocked, skipping arrival');
+      arriveLayer.classList.add('hidden');
+      enterIdle();
+      return;
+    }
+
+    // When arrival ends, transition to idle
+    arriveVideo.onended = () => {
+      enterIdle();
+    };
+  }
+
+  async function enterIdle() {
+    setState('idle');
+
+    // Cross-fade: arrival out, idle in
+    // Force reflow before setting opacity so the CSS transition actually fires
+    void idleLayer.offsetHeight;
+    idleLayer.style.opacity = '1';
+    await wait(800);
+    arriveLayer.classList.add('hidden');
+
+    // Soft chirp when bird settles
+    playChirp();
+
+    // After a beat, show thought bubble
+    await wait(1200);
+    if (state !== 'idle') return; // Guard against rapid state changes
+    thoughtBubble.style.opacity = '1';
+    thoughtBubble.style.transform = 'translateX(-50%) scale(1)';
+    recordDot.classList.add('pulsing');
+    recordDot.classList.remove('recording', 'captured');
+    bubbleLabel.textContent = 'Tap to record';
+    bubblePrompt.innerHTML = timeCtx.prompt;
+  }
+
+  async function enterRecording() {
+    if (state !== 'idle') return;
+    setState('recording');
+    startRecording();
+  }
+
+  async function enterCaptured() {
+    if (state !== 'recording') return;
+    setState('captured');
+    stopRecording();
+
+    // Visual: red → blue
+    recordDot.classList.remove('pulsing', 'recording');
+    recordDot.classList.add('captured');
+    bubbleLabel.textContent = '';
+    bubblePrompt.innerHTML = 'Got it.';
+
+    // Soft confirmation tone
+    playCapturedTone();
+
+    // Brief pause to feel the capture
+    await wait(1800);
+    if (state !== 'captured') return;
+    enterFlyaway();
+  }
+
+  async function enterFlyaway() {
+    setState('flyaway');
+
+    // Hide thought bubble
+    thoughtBubble.style.opacity = '0';
+    thoughtBubble.style.transform = 'translateX(-50%) scale(0.8)';
+    await wait(400);
+
+    // Show flyaway layer, hide idle
+    flyawayLayer.style.opacity = '1';
+    idleLayer.style.opacity = '0';
+
+    // Play flyaway video
+    flyawayVideo.currentTime = 0;
+    try {
+      await flyawayVideo.play();
+    } catch (e) {
+      // If playback fails, skip to release
+      enterRelease();
+      return;
+    }
+
+    flyawayVideo.onended = () => {
+      enterRelease();
+    };
+  }
+
+  async function enterRelease() {
+    setState('release');
+
+    // Count this worry as released
+    worryCount++;
+    localStorage.setItem('blackbird-worries', String(worryCount));
+
+    // Fade in release screen over the last frame of flyaway
+    releaseScreen.style.opacity = '1';
+    releaseScreen.style.pointerEvents = 'auto';
+  }
+
+  async function enterGoodnight() {
+    setState('goodnight');
+
+    // Show worry count on goodnight screen (very subtle)
+    const countEl = $('session-count');
+    if (worryCount === 1) {
+      countEl.textContent = '1 worry released';
+    } else if (worryCount > 1) {
+      countEl.textContent = worryCount + ' worries released';
+    }
+
+    goodnightScreen.style.opacity = '1';
+    goodnightScreen.style.pointerEvents = 'auto';
+
+    // Stop any audio streams
+    if (audioStream) {
+      audioStream.getTracks().forEach(t => t.stop());
+      audioStream = null;
+    }
+  }
+
+  // Tap goodnight screen to start fresh (for testing — no reload needed)
+  goodnightScreen.addEventListener('click', async () => {
+    if (state !== 'goodnight') return;
+
+    // Fade out goodnight screen
+    goodnightScreen.style.opacity = '0';
+    goodnightScreen.style.pointerEvents = 'none';
+    await wait(1000);
+
+    // Full reset
+    releaseScreen.style.opacity = '0';
+    releaseScreen.style.pointerEvents = 'none';
+    flyawayLayer.style.opacity = '0';
+    flyawayVideo.pause();
+    btnRemind.style.display = '';
+    releaseText.innerHTML = 'The bird has it.';
+    btnGoodnight.textContent = timeCtx.goodbye;
+    reminderPicker.classList.remove('visible');
+    reminderConfirm.classList.remove('visible');
+    reminderConfirm.textContent = '';
+    document.querySelectorAll('.reminder-opt').forEach(b => b.classList.remove('selected'));
+
+    // Re-acquire mic
+    if (!audioStream && !recordingFallback) {
+      try {
+        audioStream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ audio: true }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+      } catch (e) {
+        recordingFallback = true;
+      }
+    }
+
+    enterIdle();
+  });
+
+  async function resetForMore() {
+    setState('init');
+
+    // Hide release screen and flyaway
+    releaseScreen.style.opacity = '0';
+    releaseScreen.style.pointerEvents = 'none';
+    flyawayLayer.style.opacity = '0';
+    flyawayVideo.pause();
+
+    // Reset buttons and reminder state
+    btnRemind.style.display = '';
+    releaseText.innerHTML = 'The bird has it.';
+    btnGoodnight.textContent = timeCtx.goodbye;
+    reminderPicker.classList.remove('visible');
+    reminderConfirm.classList.remove('visible');
+    reminderConfirm.textContent = '';
+    document.querySelectorAll('.reminder-opt').forEach(b => b.classList.remove('selected'));
+
+    // Re-acquire mic if needed
+    if (!audioStream && !recordingFallback) {
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        recordingFallback = true;
+      }
+    }
+
+    // Go back to idle (skip arrival on repeat)
+    await wait(300);
+    enterIdle();
+  }
+
+  // ─── Tap handler — the bird/bubble is the only interactive element ───
+  thoughtBubble.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (state === 'idle') {
+      enterRecording();
+    } else if (state === 'recording') {
+      enterCaptured();
+    }
+  });
+
+  // Also allow tapping anywhere on the idle bird to start/stop recording
+  idleLayer.addEventListener('click', (e) => {
+    // Only if thought bubble is visible and click wasn't on bubble itself
+    if (e.target.closest('#thought-bubble')) return;
+    if (state === 'idle') {
+      enterRecording();
+    } else if (state === 'recording') {
+      enterCaptured();
+    }
+  });
+
+  // ─── Release screen buttons ───
+  btnGoodnight.addEventListener('click', () => enterGoodnight());
+
+  const reminderPicker = $('reminder-picker');
+  const reminderConfirm = $('reminder-confirm');
+
+  btnRemind.addEventListener('click', () => {
+    // Show the time picker
+    btnRemind.style.display = 'none';
+    reminderPicker.classList.add('visible');
+  });
+
+  // Reminder option buttons
+  document.querySelectorAll('.reminder-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const when = btn.dataset.when;
+
+      // Highlight selection
+      document.querySelectorAll('.reminder-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+
+      // Show confirmation based on choice
+      if (when === 'never') {
+        reminderConfirm.textContent = 'Gone. The bird has it.';
+        releaseText.textContent = 'Gone.';
+      } else {
+        // Calculate a real-looking time
+        const now = new Date();
+        let reminderTime;
+        if (when === 'morning') {
+          // Next occurrence of 8am
+          reminderTime = new Date(now);
+          reminderTime.setHours(8, 0, 0, 0);
+          if (reminderTime <= now) reminderTime.setDate(reminderTime.getDate() + 1);
+        } else if (when === 'tomorrow') {
+          reminderTime = new Date(now);
+          reminderTime.setDate(reminderTime.getDate() + 1);
+          reminderTime.setHours(9, 0, 0, 0);
+        } else if (when === 'weekend') {
+          reminderTime = new Date(now);
+          const dayOfWeek = reminderTime.getDay();
+          const daysUntilSat = (6 - dayOfWeek + 7) % 7 || 7;
+          reminderTime.setDate(reminderTime.getDate() + daysUntilSat);
+          reminderTime.setHours(10, 0, 0, 0);
+        }
+
+        const timeStr = reminderTime.toLocaleDateString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit'
+        });
+        reminderConfirm.innerHTML = 'The bird will bring it back<br>' + timeStr;
+        releaseText.textContent = 'Held for later.';
+      }
+
+      reminderConfirm.classList.add('visible');
+
+      // After a beat, show Goodnight button as the next action
+      setTimeout(() => {
+        btnGoodnight.textContent = timeCtx.goodbye;
+      }, 600);
+    });
+  });
+
+  btnMore.addEventListener('click', () => resetForMore());
+
+  // ─── Onboarding ───
+  btnStart.addEventListener('click', async () => {
+    const ok = await requestMic();
+    if (ok) {
+      onboarding.classList.add('hidden');
+      startFlow();
+    }
+  });
+
+  // ─── Init ───
+  async function init() {
+    // Apply time-aware text
+    btnGoodnight.textContent = timeCtx.goodbye;
+    bubblePrompt.innerHTML = timeCtx.prompt;
+
+    const hasMic = await checkMicPermission();
+    if (hasMic) {
+      // Already onboarded, skip to flow
+      onboarding.classList.add('hidden');
+      startFlow();
+    } else {
+      // Show onboarding
+      onboarding.classList.remove('hidden');
+    }
+  }
+
+  // ─── Visibility / lifecycle handling ───
+  // When the phone auto-locks or the user switches apps, the browser pauses.
+  // On return: if we were mid-recording or mid-flyaway, just go back to idle.
+  // If we were at release or goodnight, stay put (those are stable resting states).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      console.log('[Blackbird] returned, state was:', state);
+
+      // If we were recording, stop it cleanly
+      if (state === 'recording') {
+        stopRecording();
+      }
+
+      // Unstable mid-flow states → return to idle
+      if (state === 'recording' || state === 'captured' || state === 'flyaway' || state === 'arriving') {
+        // Reset layers
+        arriveLayer.classList.add('hidden');
+        flyawayLayer.style.opacity = '0';
+        flyawayVideo.pause();
+        releaseScreen.style.opacity = '0';
+        releaseScreen.style.pointerEvents = 'none';
+
+        // Go back to idle
+        enterIdle();
+      }
+      // 'idle', 'release', 'goodnight' — stay put
+    }
+  });
+
+  // Preload videos
+  arriveVideo.load();
+  flyawayVideo.load();
+
+  // Go
+  init();
+
+})();
+</script>
+</body>
+</html>
